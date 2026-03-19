@@ -1,0 +1,244 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String   // Removed @unique to allow same dept name in different companies
+  email       String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  companyId   String?
+  company     Company? @relation(fields: [companyId], references: [id])
+  
+  contracts Contract[]
+  
+  @@unique([name, companyId]) // Unique per company
+}
+
+enum DefinitionType {
+  CONTRACT_CATEGORY
+  CONTRACT_TYPE
+  CURRENCY
+  PAYMENT_FREQUENCY
+}
+
+model ContractDefinition {
+  id          String         @id @default(cuid())
+  type        DefinitionType
+  name        String
+  code        String?        // Optional short code (e.g. USD, TRY)
+  isActive    Boolean        @default(true)
+  companyId   String         // Definitions are company-specific
+  company     Company        @relation(fields: [companyId], references: [id])
+  
+  // contactInfo removed from here
+  
+  // Relations to Contract
+  contractsAsCategory Contract[] @relation("ContractCategory")
+  contractsAsType     Contract[] @relation("ContractType")
+  contractsAsCurrency Contract[] @relation("ContractCurrency")
+  contractsAsPayment  Contract[] @relation("ContractPayment")
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([companyId, type, name])
+}
+
+model Company {
+  id          String   @id @default(cuid())
+  name        String
+  prefix      String   @unique // Unique company code (e.g., CEM, CMT)
+  logoUrl     String?
+  address     String?
+  taxNumber   String?
+  phone       String?
+  email       String?
+  website     String?
+  
+  users       User[]
+  contracts   Contract[]
+  departments Department[]
+  smtpConfigs SmtpConfig[] 
+  definitions ContractDefinition[] 
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Contract {
+  id              String     @id @default(cuid())
+  contractNumber  String     // Auto-generated: PREFIX-YEAR-SEQ
+  subject         String
+  
+  // Categorization - Relations to ContractDefinition
+  category        ContractDefinition? @relation("ContractCategory", fields: [categoryId], references: [id])
+  categoryId      String?
+
+  type            ContractDefinition? @relation("ContractType", fields: [typeId], references: [id])
+  typeId          String?
+  
+  startDate       DateTime
+  endDate         DateTime
+  amount          Float
+  
+  currency        ContractDefinition? @relation("ContractCurrency", fields: [currencyId], references: [id])
+  currencyId      String?
+
+  paymentFrequency ContractDefinition? @relation("ContractPayment", fields: [paymentFrequencyId], references: [id])
+  paymentFrequencyId String?
+
+  status          ContractStatus @default(ACTIVE)
+  description     String?
+
+  // Responsible Parties (Internal)
+  companyRepresentative String? // Firma Sorumlu Bilgisi
+  contactInfo          String? // İletişim Bilgileri (İç)
+  internalResponsible  String? // İlgili Departman/Kişi
+
+  // Counterparty (External / Müşteri / Tedarikçi)
+  counterpartyName     String? // Karşı Taraf Firma Adı
+  counterpartyContact  String? // Karşı Taraf Yetkili Kişi
+  counterpartyEmail    String? // Karşı Taraf E-posta
+  counterpartyPhone    String? // Karşı Taraf Telefon
+
+  departmentId    String
+  department      Department @relation(fields: [departmentId], references: [id])
+
+  companyId       String?
+  company         Company?   @relation(fields: [companyId], references: [id])
+
+  documents       ContractDocument[]
+  notifications   Notification[]
+  versions        ContractVersion[]
+  changeLogs      ContractChangeLog[]
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  
+  @@unique([contractNumber, companyId]) // Unique per company
+}
+
+enum DocumentType {
+  DRAFT_EDITABLE // Word version
+  SIGNED_FINAL   // Signed PDF
+  ATTACHMENT     // Other files
+}
+
+model ContractDocument {
+  id          String   @id @default(cuid())
+  type        DocumentType @default(ATTACHMENT)
+  filename    String
+  originalName String
+  filePath    String
+  fileSize    Int
+  mimeType    String
+  
+  contractId  String
+  contract    Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ContractVersion {
+  id         String   @id @default(cuid())
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  version    Int
+  data       Json
+  createdAt  DateTime @default(now())
+}
+
+model ContractChangeLog {
+  id         String   @id @default(cuid())
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  field      String
+  oldValue   String?
+  newValue   String?
+  createdAt  DateTime @default(now())
+}
+
+model SmtpConfig {
+  id          String   @id @default(cuid())
+  name        String
+  host        String
+  port        Int
+  username    String
+  password    String
+  fromEmail   String
+  fromName    String
+  secure      Boolean  @default(true)
+  isActive    Boolean  @default(false)
+  
+  companyId   String?
+  company     Company? @relation(fields: [companyId], references: [id])
+  
+  notifications Notification[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  type        NotificationType
+  daysBefore  Int
+  subject     String
+  message     String
+  isSent      Boolean          @default(false)
+  sentAt      DateTime?
+  
+  contractId  String
+  contract    Contract         @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  
+  smtpConfigId String?
+  smtpConfig  SmtpConfig?      @relation(fields: [smtpConfigId], references: [id])
+  
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+enum ContractStatus {
+  ACTIVE
+  EXPIRED
+  TERMINATED
+  RENEWED
+}
+
+enum NotificationType {
+  EXPIRATION_WARNING
+  EXPIRED
+  RENEWAL_REMINDER
+  MISSING_SIGNATURE
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  role         Role     @default(ADMIN)
+  
+  companies    Company[]
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
